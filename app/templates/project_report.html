@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>项目漏洞报表</title>
+  <style>
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #fafbfc; margin: 0; padding: 0; }
+    h1 { margin: 24px 0 16px 24px; font-size: 1.6em; }
+    .table-wrap { margin: 0 24px 24px 24px; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px #0001; background: #fff; }
+    table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 1200px; }
+    th, td { border: 1px solid #e0e0e0; padding: 10px 8px; }
+    th { background: #f2f2f2; position: sticky; top: 0; z-index: 2; }
+    tr:hover { background: #f9f9f9; }
+    .nowrap { white-space: nowrap; }
+    .desc { max-width: 600px; min-width: 300px; word-break: break-all; line-height: 1.6; background: #fcfcf7; }
+    .safe-ver { font-size: 13px; line-height: 1.7; }
+    .affected-ver { color: #c00; font-weight: bold; display: block; margin-bottom: 2px; }
+    .fixed-ver { color: #2a7; font-weight: bold; display: block; margin-bottom: 2px; }
+    .cve-links { font-size: 12px; margin-top: 2px; }
+    .cve-links a { color: #4b5cc4; text-decoration: none; margin: 0 2px; }
+    .cve-links a:hover { text-decoration: underline; }
+    td, th { vertical-align: top; }
+  </style>
+</head>
+<body>
+  <h1>项目漏洞报表</h1>
+  {% set args = request.args.to_dict(flat=False) %}
+  {% macro pagination(total, page_size, page) %}
+    {% if total and page_size %}
+      <div style="margin:20px 24px 0 24px;display:flex;align-items:center;gap:16px;">
+        <form method="get" style="display:inline;">
+          {% for k, vlist in args.items() if k not in ['page', 'page_size'] %}
+            {% for v in vlist %}
+              <input type="hidden" name="{{ k }}" value="{{ v }}">
+            {% endfor %}
+          {% endfor %}
+          <input type="hidden" name="page_size" value="{{ page_size }}">
+          <button type="submit" name="page" value="{{ page-1 }}" {% if page <= 1 %}disabled{% endif %}>上一页</button>
+          <span>第 {{ page }} / {{ (total // page_size + (1 if total % page_size else 0)) }} 页</span>
+          <button type="submit" name="page" value="{{ page+1 }}" {% if page * page_size >= total %}disabled{% endif %}>下一页</button>
+          跳转到 <input type="number" name="page" min="1" max="{{ (total // page_size + (1 if total % page_size else 0)) }}" value="{{ page }}" style="width:50px;">
+          <button type="submit">跳转</button>
+        </form>
+        <span style="color:#888;font-size:13px;">共 {{ total }} 条，每页 {{ page_size }} 条</span>
+      </div>
+    {% endif %}
+  {% endmacro %}
+  {{ pagination(total, page_size, page) }}
+  <div class="table-wrap">
+    <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>项目</th>
+            <th>报告时间</th>
+            <th>依赖路径</th>
+            <th>CVE</th>
+            <th>CVSS(v3)</th>
+            <th>严重程度</th>
+            <th>攻击向量</th>
+            <th>是否已知利用</th>
+            <th>描述</th>
+            <th>安全版本</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in report %}
+          <tr>
+            <td class="nowrap">{{ row.project_name }}</td>
+            <td class="nowrap">
+              {% if row.report_date %}
+                <span class="report-date" data-utc="{{ row.report_date.isoformat() }}"></span>
+              {% endif %}
+            </td>
+            <td class="nowrap">{{ row.file_path }}</td>
+            <td class="nowrap">
+              {% if row.cve %}
+                {{ row.cve }}
+                <div class="cve-links">
+                  <a href="https://nvd.nist.gov/vuln/detail/{{ row.cve }}" target="_blank">NVD</a> |
+                  <a href="https://www.cve.org/CVERecord?id={{ row.cve }}" target="_blank">CVE.org</a>
+                </div>
+              {% else %}-{% endif %}
+            </td>
+            <td class="nowrap">{{ row.v3basescore or row.scan_score }}</td>
+            <td class="nowrap">{{ row.v3baseseverity or row.severity }}</td>
+            <td class="nowrap">{{ row.v3attackvector or row.v4attackvector }}</td>
+            <td class="nowrap">{% if row.is_known_exploited %}✅{% else %}❌{% endif %}</td>
+            <td class="desc">{{ row.description }}</td>
+            <td class="safe-ver">
+              {% if row.safe_versions %}
+                {% for ver in row.safe_versions %}
+                  {% if ver.versionStartIncluding or ver.versionEndIncluding %}
+                    <span class="affected-ver">受影响版本: {{ ver.versionStartIncluding or '' }} ~ {{ ver.versionEndIncluding or '' }}</span>
+                  {% endif %}
+                  {% if ver.versionEndExcluding %}
+                    <span class="fixed-ver">安全版本: >= {{ ver.versionEndExcluding }}</span>
+                  {% endif %}
+                {% endfor %}
+              {% else %}-{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {{ pagination(total, page_size, page) }}
+  <script>
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.report-date[data-utc]').forEach(function(el) {
+      var utcStr = el.getAttribute('data-utc');
+      if (utcStr) {
+        var dt = new Date(utcStr);
+        if (!isNaN(dt)) {
+          el.textContent = dt.toLocaleString();
+        } else {
+          el.textContent = utcStr;
+        }
+      }
+    });
+  });
+  </script>
+</body>
+</html>

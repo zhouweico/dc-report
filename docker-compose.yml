@@ -1,0 +1,83 @@
+services:
+
+  # ================= DCReport =================
+
+  dc-report:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    ports:
+      - 5001:5001
+    depends_on:
+      dc-postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ================= PostgreSQL =================
+
+  dc-postgres:
+    image: postgres:17.0
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+      POSTGRES_DB: ${DB_NAME}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - 5432:5432
+    volumes:
+      - $HOME/data/postgres/dc-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # ================= Supabase Studio =================
+
+  supabase-studio:
+    image: supabase/studio:2025.07.07-sha-1d3b0ba
+    restart: unless-stopped
+    env_file:
+      - .env
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://studio:3000/api/profile').then((r) => {if (r.status !== 200) throw new Error(r.status)})"
+        ]
+      timeout: 10s
+      interval: 5s
+      retries: 3
+    environment:
+      STUDIO_PG_META_URL: http://supabase-meta:8080
+      POSTGRES_PASSWORD: ${DB_PASS}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      NEXT_PUBLIC_ENABLE_LOGS: true
+      NEXT_ANALYTICS_BACKEND_PROVIDER: postgres
+    ports:
+      - 8118:3000
+    depends_on:
+      - supabase-meta
+  
+  supabase-meta:
+    image: supabase/postgres-meta:v0.91.0
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: ${DB_HOST}
+      PG_META_DB_PORT: ${DB_PORT}
+      PG_META_DB_NAME: ${DB_NAME}
+      PG_META_DB_USER: ${DB_USER}
+      PG_META_DB_PASSWORD: ${DB_PASS}
+    depends_on:
+      - dc-postgres
